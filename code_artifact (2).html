@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>遊樂園大冒險：加法闖關</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        /* 跨平台終極防呆：防縮放、防下拉重新整理、防選取 */
+        * {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        body, html {
+            margin: 0; padding: 0;
+            width: 100vw; height: 100vh;
+            overflow: hidden;
+            background-color: #ffecd2;
+            background-image: radial-gradient(#ffb5a7 15%, transparent 16%), radial-gradient(#ffb5a7 15%, transparent 16%);
+            background-size: 40px 40px;
+            background-position: 0 0, 20px 20px;
+            font-family: 'Inter', 'Noto Sans TC', sans-serif;
+            overscroll-behavior: none; 
+        }
+
+        .screen { display: none; width: 100%; height: 100%; flex-direction: column; }
+        .screen.active { display: flex; }
+
+        /* ======== 選角頁面 ======== */
+        .char-card {
+            width: clamp(80px, 20vw, 120px); 
+            height: clamp(80px, 20vw, 120px);
+            background: white; border-radius: 2rem; border: 6px solid #FCD34D;
+            display: flex; justify-content: center; align-items: center;
+            font-size: clamp(3rem, 8vw, 4rem);
+            box-shadow: 0 10px 0 #D97706; cursor: pointer; transition: all 0.2s;
+        }
+        .char-card:active { transform: translateY(10px); box-shadow: 0 0px 0 #D97706; }
+
+        /* ======== 地圖頁面 ======== */
+        .map-bg {
+            background: linear-gradient(180deg, #87CEEB 0%, #E0F6FF 50%, #A7D3A6 100%);
+            border: 8px solid #FCD34D; border-radius: 2rem;
+            position: relative; overflow: hidden;
+        }
+        .map-node {
+            width: 70px; height: 70px; border-radius: 50%;
+            display: flex; justify-content: center; align-items: center;
+            font-size: 1.8rem; font-weight: 900; z-index: 10;
+            transition: all 0.3s; position: relative;
+        }
+        .node-locked { background-color: #CBD5E1; color: #94A3B8; box-shadow: 0 8px 0 #94A3B8; cursor: not-allowed; }
+        .node-unlocked { background-color: #FCD34D; color: #B45309; box-shadow: 0 8px 0 #D97706; cursor: pointer; border: 4px solid #FFF; }
+        .node-unlocked:active { transform: translateY(4px); box-shadow: 0 0px 0 #D97706; }
+        .map-path { position: absolute; width: 12px; background-color: rgba(255,255,255,0.7); z-index: 1; left: 50%; transform: translateX(-50%); top: 10%; bottom: 10%; }
+        
+        .avatar {
+            position: absolute; top: -50px; left: 50%; transform: translateX(-50%);
+            font-size: 3rem; filter: drop-shadow(0 4px 4px rgba(0,0,0,0.3));
+            animation: float 2s infinite ease-in-out; z-index: 20;
+        }
+        @keyframes float { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -10px); } }
+
+        /* ======== 遊戲區塊 ======== */
+        .jelly-btn { position: relative; transition: all 0.1s; border-radius: 1.5rem; border: 4px solid rgba(255,255,255,0.5); }
+        .jelly-btn:active:not(:disabled) { transform: translateY(4px); box-shadow: none !important; }
+        .jelly-btn:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none !important; }
+
+        .btn-white { background-color: #ffffff; box-shadow: 0 8px 0 #cbd5e1; color: #334155; }
+        .btn-pink { background-color: #fbcfe8; box-shadow: 0 8px 0 #f472b6; color: #be185d; border-color: #fce7f3; }
+        .btn-blue { background-color: #bae6fd; box-shadow: 0 8px 0 #38bdf8; color: #0369a1; border-color: #e0f2fe; }
+        .btn-gray { background-color: #e2e8f0; box-shadow: 0 8px 0 #94a3b8; color: #475569; }
+
+        /* 算式框 */
+        .slot-box {
+            display: flex; align-items: center; justify-content: center;
+            font-weight: 900; color: #1e293b; background-color: white;
+            box-shadow: inset 0 4px 6px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.2s;
+        }
+        .slot-square { border-radius: 1.2rem; border: 4px solid #94a3b8; width: clamp(3rem, 15vw, 6rem); height: clamp(4rem, 20vw, 7rem); font-size: clamp(2rem, 8vw, 4rem); }
+        .slot-circle { border-radius: 50%; border: 4px solid #94a3b8; width: clamp(2.5rem, 12vw, 5rem); height: clamp(2.5rem, 12vw, 5rem); font-size: clamp(1.5rem, 6vw, 3rem); }
+        .slot-locked { background-color: #E2E8F0; color: #64748B; border-color: #94A3B8; cursor: not-allowed; }
+        
+        @keyframes pulse-focus { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(249,115,22,0); } 50% { transform: scale(1.1); box-shadow: 0 0 0 8px rgba(249,115,22,0.4); } }
+        .slot-focused { border-color: #f97316 !important; animation: pulse-focus 1s infinite; z-index: 10; }
+        
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+        .animate-shake { animation: shake 0.3s ease-in-out; border-color: #ef4444 !important; background-color: #fee2e2 !important; }
+
+        .emoji-item { animation: popIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+        @keyframes popIn { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+
+    <!-- ==================== Screen 1: 角色選擇 ==================== -->
+    <div id="screen-char" class="screen active absolute inset-0 z-[60] bg-white/90 backdrop-blur-md justify-center items-center">
+        <h1 class="text-3xl sm:text-5xl font-black text-indigo-600 mb-10 text-center drop-shadow-sm px-4">選一個角色出發吧！</h1>
+        <div class="flex flex-wrap justify-center gap-6 p-4 max-w-2xl">
+            <button onclick="selectChar('🦊')" class="char-card">🦊</button>
+            <button onclick="selectChar('🐻')" class="char-card">🐻</button>
+            <button onclick="selectChar('🐰')" class="char-card">🐰</button>
+            <button onclick="selectChar('🐶')" class="char-card">🐶</button>
+        </div>
+    </div>
+
+    <!-- ==================== Screen 2: 冒險地圖 ==================== -->
+    <div id="screen-map" class="screen absolute inset-0 z-50 p-4 sm:p-8 bg-white/50 backdrop-blur-sm">
+        <h1 class="text-3xl sm:text-5xl font-black text-center text-indigo-700 mb-4 drop-shadow-md shrink-0">🎡 遊樂園大冒險</h1>
+        <div class="flex-1 map-bg flex flex-col justify-between items-center py-10 relative">
+            <div class="map-path"></div>
+            <!-- 節點 5-1 由上往下排 -->
+            <button id="node-5" onclick="startLevel(5)" class="map-node node-locked" style="margin-left: 60px;">5</button>
+            <button id="node-4" onclick="startLevel(4)" class="map-node node-locked" style="margin-right: 60px;">4</button>
+            <button id="node-3" onclick="startLevel(3)" class="map-node node-locked" style="margin-left: 60px;">3</button>
+            <button id="node-2" onclick="startLevel(2)" class="map-node node-locked" style="margin-right: 60px;">2</button>
+            <button id="node-1" onclick="startLevel(1)" class="map-node node-unlocked" style="margin-left: 60px;">
+                1<div id="avatar" class="avatar">🦊</div>
+            </button>
+        </div>
+    </div>
+
+    <!-- ==================== Screen 3: 遊戲闖關 ==================== -->
+    <div id="screen-game" class="screen bg-transparent">
+        <!-- 頂部資訊 -->
+        <div class="h-[8vh] bg-white/95 shadow-sm flex items-center justify-between px-4 shrink-0 z-20 border-b-4 border-indigo-100">
+            <button onclick="goMap()" class="jelly-btn bg-gray-200 text-gray-700 text-lg sm:text-xl font-bold py-1 px-4 shadow-[0_4px_0_#9CA3AF]">🔙 地圖</button>
+            <h2 id="level-title" class="text-xl sm:text-2xl font-black text-indigo-600">第 X 關</h2>
+            <div id="star-progress" class="text-2xl sm:text-4xl text-amber-400 tracking-widest drop-shadow-sm">☆☆☆☆☆</div>
+        </div>
+
+        <!-- 舞台展示區 -->
+        <div class="flex-1 flex justify-center items-center p-4 min-h-[25vh]">
+            <div class="bg-white/80 backdrop-blur rounded-[2rem] border-4 border-white shadow-lg w-full max-w-3xl h-full flex relative p-2 sm:p-4">
+                <!-- 左側 -->
+                <div id="stage-left" class="flex-1 flex flex-wrap justify-center content-center items-center gap-2 p-2"></div>
+                <!-- 視覺切線 -->
+                <div class="w-1 sm:w-2 rounded-full bg-red-400 border-x-2 border-red-500 border-dashed opacity-80 my-2"></div>
+                <!-- 右側 -->
+                <div id="stage-right" class="flex-1 flex flex-wrap justify-center content-center items-center gap-2 p-2"></div>
+            </div>
+        </div>
+
+        <!-- 算式輸入框 -->
+        <div id="slot-container" class="h-[12vh] flex justify-center items-center gap-2 sm:gap-4 px-2 relative z-10 shrink-0">
+            <div id="s0" onclick="setFocus(0)" class="slot-box slot-square border-amber-300 bg-amber-50"></div>
+            <div id="s1" onclick="setFocus(1)" class="slot-box slot-circle"></div>
+            <div id="s2" onclick="setFocus(2)" class="slot-box slot-square border-blue-300 bg-blue-50"></div>
+            <div id="s3" onclick="setFocus(3)" class="slot-box slot-circle"></div>
+            <div id="s4" onclick="setFocus(4)" class="slot-box slot-square border-emerald-400 bg-emerald-50"></div>
+        </div>
+
+        <!-- 數字鍵盤 -->
+        <div class="h-[42vh] bg-white/80 backdrop-blur-md p-3 sm:p-5 border-t-4 border-white shadow-xl relative shrink-0">
+            <div class="grid grid-cols-4 gap-2 sm:gap-4 h-full max-w-3xl mx-auto pb-2">
+                <button onclick="inputKey('1')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">1</button>
+                <button onclick="inputKey('2')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">2</button>
+                <button onclick="inputKey('3')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">3</button>
+                <button id="btn-plus" onclick="inputKey('+')" class="jelly-btn btn-pink text-3xl sm:text-5xl font-black">➕</button>
+                
+                <button onclick="inputKey('4')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">4</button>
+                <button onclick="inputKey('5')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">5</button>
+                <button onclick="inputKey('6')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">6</button>
+                <button id="btn-eq" onclick="inputKey('=')" class="jelly-btn btn-blue text-3xl sm:text-5xl font-black">🟰</button>
+                
+                <button onclick="inputKey('7')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">7</button>
+                <button onclick="inputKey('8')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">8</button>
+                <button onclick="inputKey('9')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">9</button>
+                <button onclick="inputKey('back')" class="jelly-btn btn-gray text-2xl sm:text-4xl font-black">⌫</button>
+                
+                <div class="col-span-1"></div>
+                <button onclick="inputKey('0')" class="jelly-btn btn-white text-3xl sm:text-5xl font-black">0</button>
+                <div class="col-span-2"></div>
+            </div>
+
+            <!-- 單題成功遮罩 -->
+            <div id="overlay-next" class="absolute inset-0 bg-white/80 backdrop-blur-sm hidden flex-col justify-center items-center z-30 rounded-t-3xl">
+                <button onclick="nextQ()" class="jelly-btn bg-amber-400 text-white text-3xl sm:text-5xl font-black py-4 px-12 shadow-[0_8px_0_#b45309] border-4 border-amber-200">
+                    下一題 ➔
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 關卡全破畫面 -->
+    <div id="modal-clear" class="fixed inset-0 bg-indigo-600/95 z-[70] hidden flex-col justify-center items-center">
+        <h1 class="text-5xl sm:text-7xl font-black text-white drop-shadow-lg mb-8 tracking-widest text-center">恭喜過關！</h1>
+        <div class="text-[80px] sm:text-[120px] mb-10 animate-bounce">🏆</div>
+        <button onclick="finishLevel()" class="jelly-btn bg-white text-indigo-600 text-2xl sm:text-4xl font-black py-4 px-10 shadow-[0_8px_0_#94a3b8]">
+            回地圖 ➔
+        </button>
+    </div>
+
+    <script>
+        // 音效系統
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSnd(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const o = audioCtx.createOscillator(); const g = audioCtx.createGain();
+            o.connect(g); g.connect(audioCtx.destination);
+            if (type === 'click') {
+                o.type = 'sine'; o.frequency.setValueAtTime(600, audioCtx.currentTime);
+                o.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
+                g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                o.start(); o.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'err') {
+                o.type = 'sawtooth'; o.frequency.setValueAtTime(150, audioCtx.currentTime);
+                g.gain.setValueAtTime(0.3, audioCtx.currentTime); g.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                o.start(); o.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'win') {
+                [523.25, 659.25, 783.99, 1046.50].forEach((f, i) => {
+                    const o2 = audioCtx.createOscillator(); const g2 = audioCtx.createGain();
+                    o2.type = 'square'; o2.frequency.value = f; o2.connect(g2); g2.connect(audioCtx.destination);
+                    let t = audioCtx.currentTime + (i * 0.1);
+                    g2.gain.setValueAtTime(0, t); g2.gain.linearRampToValueAtTime(0.2, t + 0.05); g2.gain.exponentialRampToValueAtTime(0.01, t + 0.5);
+                    o2.start(t); o2.stop(t + 0.5);
+                });
+            }
+        }
+        document.body.addEventListener('click', () => { if(audioCtx.state === 'suspended') audioCtx.resume(); }, {once:true});
+
+        // 狀態管理
+        let char = '🦊';
+        let maxLvl = 1;
+        let curLvl = 1;
+        let qDone = 0;
+        let lNum = 0, rNum = 0, sumNum = 0;
+        let inputs = ['', '', '', '', ''];
+        let curSlot = 0;
+        let currentLevelQuestions = []; // 新增：用來存放該關卡的 5 題不重複題庫
+        const EMOJIS = ['🍎', '🚗', '🍩', '🦖', '🍕', '🧸'];
+
+        // UI切換
+        function showScreen(id) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(id).classList.add('active');
+        }
+        
+        function selectChar(c) {
+            playSnd('click'); char = c;
+            document.getElementById('avatar').textContent = char;
+            showScreen('screen-map');
+            updateMap();
+        }
+
+        function updateMap() {
+            for(let i=1; i<=5; i++) {
+                let btn = document.getElementById(`node-${i}`);
+                if(i <= maxLvl) {
+                    btn.className = "map-node node-unlocked";
+                    if(i === maxLvl) btn.appendChild(document.getElementById('avatar'));
+                } else {
+                    btn.className = "map-node node-locked";
+                }
+            }
+        }
+
+        function goMap() { playSnd('click'); showScreen('screen-map'); }
+
+        function startLevel(lvl) {
+            if(lvl > maxLvl) { playSnd('err'); return; }
+            playSnd('click');
+            curLvl = lvl; qDone = 0;
+            currentLevelQuestions = buildLevelQuestions(lvl); // 進入關卡時，先洗牌並抽出 5 題
+            document.getElementById('level-title').textContent = `第 ${lvl} 關`;
+            showScreen('screen-game');
+            genQ();
+        }
+
+        // 新增：根據關卡難度，生成不重複題庫並洗牌
+        function buildLevelQuestions(lvl) {
+            let pool = [];
+            for(let a=0; a<=10; a++) {
+                for(let b=0; b<=10; b++) {
+                    let sum = a + b;
+                    // 第一關：都沒有 0，總和 <= 5
+                    if(lvl === 1 && a > 0 && b > 0 && sum <= 5) pool.push([a, b]);
+                    // 第二關：都沒有 0，總和 <= 7
+                    else if(lvl === 2 && a > 0 && b > 0 && sum <= 7) pool.push([a, b]);
+                    // 第三關：都沒有 0，總和 <= 10
+                    else if(lvl === 3 && a > 0 && b > 0 && sum <= 10) pool.push([a, b]);
+                    // 第四關：一定要有 0 (空盤子)，總和 <= 10
+                    else if(lvl === 4 && (a === 0 || b === 0) && sum <= 10) pool.push([a, b]);
+                    // 第五關：大混戰 (有 0 或沒 0 都可以)，總和 <= 10
+                    else if(lvl === 5 && sum <= 10) pool.push([a, b]);
+                }
+            }
+            // Fisher-Yates 洗牌演算法 (將題庫隨機打亂)
+            for(let i = pool.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [pool[i], pool[j]] = [pool[j], pool[i]];
+            }
+            // 抽出前 5 題，確保這 5 題絕對不重複！
+            return pool.slice(0, 5); 
+        }
+
+        function getEmojiSize(count) {
+            if(count === 0) return 'clamp(3rem, 10vw, 4rem)';
+            if(count > 6) return 'clamp(1.5rem, 5vw, 2.2rem)';
+            if(count > 3) return 'clamp(2rem, 6vw, 3rem)';
+            return 'clamp(2.5rem, 8vw, 4rem)';
+        }
+
+        function genQ() {
+            // 從洗好的題庫中，依序拿出目前的題目
+            let q = currentLevelQuestions[qDone];
+            lNum = q[0];
+            rNum = q[1];
+            sumNum = lNum + rNum;
+
+            let icon = EMOJIS[Math.floor(Math.random()*EMOJIS.length)];
+            const sl = document.getElementById('stage-left');
+            const sr = document.getElementById('stage-right');
+            
+            sl.innerHTML = lNum===0 ? `<div class="emoji-item opacity-80" style="font-size:${getEmojiSize(0)}">🍽️</div>` : 
+                Array(lNum).fill(`<div class="emoji-item" style="font-size:${getEmojiSize(lNum)}">${icon}</div>`).join('');
+            
+            sr.innerHTML = rNum===0 ? `<div class="emoji-item opacity-80" style="font-size:${getEmojiSize(0)}">🍽️</div>` : 
+                Array(rNum).fill(`<div class="emoji-item" style="font-size:${getEmojiSize(rNum)}">${icon}</div>`).join('');
+
+            inputs = ['', '', '', '', ''];
+            if(curLvl === 1) { 
+                inputs[1]='+'; inputs[3]='='; 
+                document.getElementById('s1').classList.add('slot-locked');
+                document.getElementById('s3').classList.add('slot-locked');
+                document.getElementById('btn-plus').disabled = true;
+                document.getElementById('btn-eq').disabled = true;
+            } else {
+                document.getElementById('s1').classList.remove('slot-locked');
+                document.getElementById('s3').classList.remove('slot-locked');
+                document.getElementById('btn-plus').disabled = false;
+                document.getElementById('btn-eq').disabled = false;
+            }
+            
+            document.getElementById('overlay-next').classList.add('hidden');
+            document.getElementById('overlay-next').classList.remove('flex');
+            setFocus(0);
+            renderSlots();
+        }
+
+        function renderSlots() {
+            let stars = '';
+            for(let i=0; i<5; i++) stars += (i < qDone) ? '⭐' : '☆';
+            document.getElementById('star-progress').textContent = stars;
+
+            for(let i=0; i<5; i++) {
+                let el = document.getElementById(`s${i}`);
+                el.textContent = inputs[i];
+                el.classList.remove('slot-focused', 'animate-shake');
+            }
+            if(!document.getElementById(`s${curSlot}`).classList.contains('slot-locked')) {
+                document.getElementById(`s${curSlot}`).classList.add('slot-focused');
+            }
+        }
+
+        function setFocus(idx) {
+            if(document.getElementById(`s${idx}`).classList.contains('slot-locked')) return;
+            playSnd('click'); curSlot = idx; renderSlots();
+        }
+
+        function autoNext() {
+            for(let i = curSlot+1; i<5; i++) {
+                if(inputs[i] === '' && !document.getElementById(`s${i}`).classList.contains('slot-locked')) { setFocus(i); return; }
+            }
+            for(let i = 0; i<5; i++) {
+                if(inputs[i] === '' && !document.getElementById(`s${i}`).classList.contains('slot-locked')) { setFocus(i); return; }
+            }
+        }
+
+        function inputKey(k) {
+            playSnd('click');
+            document.getElementById('slot-container').classList.remove('animate-shake');
+            
+            if(k === 'back') {
+                if(inputs[curSlot] !== '') inputs[curSlot] = '';
+                else if(curSlot > 0) {
+                    let p = curSlot - 1;
+                    while(p >= 0 && document.getElementById(`s${p}`).classList.contains('slot-locked')) p--;
+                    if(p >= 0) { curSlot = p; inputs[curSlot] = ''; }
+                }
+            } else if(k === '+' || k === '=') {
+                if(curSlot === 1 || curSlot === 3) { inputs[curSlot] = k; autoNext(); }
+            } else {
+                if(curSlot === 0 || curSlot === 2 || curSlot === 4) {
+                    if(curSlot === 4 && inputs[4] === '1' && k === '0') inputs[4] = '10'; // allow 10
+                    else inputs[curSlot] = k;
+                    autoNext();
+                }
+            }
+            renderSlots();
+            checkWin();
+        }
+
+        function checkWin() {
+            if(inputs.includes('')) return;
+            let ok = (inputs[0]==lNum && inputs[1]==='+' && inputs[2]==rNum && inputs[3]==='=' && inputs[4]==sumNum);
+            if(ok) {
+                playSnd('win');
+                qDone++; renderSlots();
+                document.getElementById(`s4`).classList.remove('slot-focused');
+                
+                if(qDone >= 5) {
+                    confetti({particleCount:100, spread:70, origin:{y:0.6}});
+                    document.getElementById('modal-clear').classList.remove('hidden');
+                    document.getElementById('modal-clear').classList.add('flex');
+                } else {
+                    confetti({particleCount:40, spread:50, origin:{y:0.8}});
+                    document.getElementById('overlay-next').classList.remove('hidden');
+                    document.getElementById('overlay-next').classList.add('flex');
+                }
+            } else {
+                if(sumNum === 10 && inputs[4] === '1') return; // let them finish typing 10
+                playSnd('err');
+                document.getElementById('slot-container').classList.add('animate-shake');
+            }
+        }
+
+        function nextQ() { playSnd('click'); genQ(); }
+
+        function finishLevel() {
+            playSnd('click');
+            document.getElementById('modal-clear').classList.add('hidden');
+            document.getElementById('modal-clear').classList.remove('flex');
+            if(maxLvl === curLvl && maxLvl < 5) maxLvl++;
+            goMap(); updateMap();
+        }
+    </script>
+</body>
+</html>
